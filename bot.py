@@ -2,57 +2,63 @@ import asyncio
 import logging
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 
 # ================= CONFIG =================
-import os
-TOKEN = os.getenv("TOKEN")
+
+TOKEN = os.getenv("BOT_TOKEN")  # Render token
+if not TOKEN:
+    raise Exception("BOT_TOKEN is not set")
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # ================= DB =================
+
 conn = sqlite3.connect("bot.db")
 cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-user_id INTEGER PRIMARY KEY
+    user_id INTEGER PRIMARY KEY
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS tournaments (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-name TEXT,
-date TEXT,
-time TEXT,
-price INTEGER,
-room TEXT,
-start_datetime TEXT
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    date TEXT,
+    time TEXT,
+    price INTEGER,
+    room TEXT,
+    start_datetime TEXT
 )
 """)
 
 conn.commit()
 
-# ================= ROLE (simple) =================
-OWNERS = {123456789}  # <-- вставь свой ID
+# ================= ADMINS =================
+
+OWNERS = {123456789}  # твой Telegram ID
 
 def is_owner(user_id: int):
     return user_id in OWNERS
 
 # ================= START =================
+
 @dp.message(CommandStart())
 async def start(m: Message):
     cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (m.from_user.id,))
     conn.commit()
-
     await m.answer("👋 Бот работает!")
 
-# ================= CREATE TOURNAMENT =================
+# ================= TOURNAMENT CREATION =================
+
 tour_state = {}
 
 @dp.message(F.text == "/tour")
@@ -83,16 +89,19 @@ async def tour_flow(m: Message):
         return await m.answer("💰 Цена")
 
     if "price" not in data:
-        data["price"] = int(m.text)
+        try:
+            data["price"] = int(m.text)
+        except:
+            return await m.answer("❌ Введи число")
 
         dt = datetime.strptime(
-            data["date"] + " " + data["time"],
+            f"{data['date']} {data['time']}",
             "%d.%m.%Y %H:%M"
         )
 
         cursor.execute("""
-        INSERT INTO tournaments (name,date,time,price,start_datetime)
-        VALUES (?,?,?,?,?)
+        INSERT INTO tournaments (name, date, time, price, start_datetime)
+        VALUES (?, ?, ?, ?, ?)
         """, (data["name"], data["date"], data["time"], data["price"], dt.isoformat()))
 
         conn.commit()
@@ -101,6 +110,7 @@ async def tour_flow(m: Message):
         return await m.answer("✅ Турнир создан")
 
 # ================= ROOM =================
+
 @dp.message(F.text.startswith("/room"))
 async def room(m: Message):
     if not is_owner(m.from_user.id):
@@ -113,7 +123,7 @@ async def room(m: Message):
 
     cursor.execute("""
     UPDATE tournaments
-    SET room=?
+    SET room = ?
     ORDER BY id DESC
     LIMIT 1
     """, (link,))
@@ -123,6 +133,7 @@ async def room(m: Message):
     await m.answer("🎮 Рума добавлена")
 
 # ================= BROADCAST =================
+
 @dp.message(F.text.startswith("/send"))
 async def send_all(m: Message):
     if not is_owner(m.from_user.id):
@@ -140,10 +151,11 @@ async def send_all(m: Message):
 
     await m.answer("📢 Рассылка отправлена")
 
-# ================= RUN BOT =================
+# ================= MAIN =================
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
+if name == "main":
     asyncio.run(main())
